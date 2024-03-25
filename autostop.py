@@ -104,6 +104,7 @@ def stop_endpoint(endpoint_name):
         ]:
             print("Stopping endpoint:", endpoint_name)
             client.delete_endpoint(EndpointName=endpoint_name)
+            client.delete_endpoint_config(EndpointConfigName=endpoint_name)
         else:
             print("Endpoint already stopped:", endpoint_name)
     except:
