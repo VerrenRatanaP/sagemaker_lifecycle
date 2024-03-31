@@ -111,12 +111,13 @@ def is_endpoint_idle():
         Statistics=["Sum"],
     )
 
+    print(response["Datapoints"])
     # Calculate total invocations in the last hour
     total_invocations = sum([datapoint["Sum"] for datapoint in response["Datapoints"]])
     print(f"Total invocations: {total_invocations}")
 
     # Check if total invocations are below threshold
-    if total_invocations == 0:
+    if int(total_invocations) == 0:
         # Check if the idle time exceeds the threshold
         last_invocation_time = max(
             [datapoint["Timestamp"] for datapoint in response["Datapoints"]]
