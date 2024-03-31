@@ -17,6 +17,7 @@ import getopt, sys
 import urllib3
 import boto3
 import json
+from datetime import timedelta
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -80,6 +81,47 @@ def is_idle(last_activity):
         return False
 
 
+def is_endpoint_idle():
+    idle_threshold = time
+
+    cw = boto3.client("cloudwatch")
+    sm = boto3.client("sagemaker")
+
+    inservice_endpoints = sm.list_endpoints(
+        SortBy="CreationTime",
+        SortOrder="Ascending",
+        MaxResults=100,
+        # NameContains='string',     # for example 'dev-'
+        StatusEquals="InService",
+    )
+
+    for ep in inservice_endpoints["Endpoints"]:
+
+        ep_describe = sm.describe_endpoint(EndpointName=ep["EndpointName"])
+
+        metric_response = cw.get_metric_statistics(
+            Namespace="AWS/SageMaker",
+            MetricName="Invocations",
+            Dimensions=[
+                {"Name": "EndpointName", "Value": ep["EndpointName"]},
+                {
+                    "Name": "VariantName",
+                    "Value": ep_describe["ProductionVariants"][0]["VariantName"],
+                },
+            ],
+            StartTime=datetime.utcnow() - timedelta(seconds=idle_threshold),
+            EndTime=datetime.utcnow(),
+            Period=int(idle_threshold),
+            Statistics=["Sum"],
+            Unit="None",
+        )
+
+        if len(metric_response["Datapoints"]) == 0:
+            return True
+        else:
+            return False
+
+
 def get_notebook_name():
     log_path = "/opt/ml/metadata/resource-metadata.json"
     with open(log_path, "r") as logs:
@@ -118,7 +160,7 @@ if len(data) > 0:
     for notebook in data:
         # Idleness is defined by Jupyter
         # https://github.com/jupyter/notebook/issues/4634
-        if notebook["kernel"]["execution_state"] == "idle":
+        if notebook["kernel"]["execution_state"] == "idle" and is_endpoint_idle():
             if not ignore_connections:
                 if notebook["kernel"]["connections"] == 0:
                     if not is_idle(notebook["kernel"]["last_activity"]):
