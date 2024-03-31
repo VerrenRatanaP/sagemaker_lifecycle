@@ -84,55 +84,32 @@ def is_idle(last_activity):
 def is_endpoint_idle():
     endpoint_name = get_endpoint_name()
     idle_threshold = time
-    # Initialize SageMaker client
-    sagemaker_client = boto3.client("sagemaker")
+    cw = boto3.client("cloudwatch")
+    sm = boto3.client("sagemaker")
 
-    # Get endpoint status
-    response = sagemaker_client.describe_endpoint(EndpointName=endpoint_name)
-    endpoint_status = response["EndpointStatus"]
+    ep_describe = sm.describe_endpoint(EndpointName=endpoint_name)
 
-    print(f"Endpoint status: {endpoint_status}")
-
-    # Check if the endpoint is in service
-    if endpoint_status != "InService":
-        return False  # Endpoint not in service, not idle
-
-    # Get CloudWatch client
-    cloudwatch_client = boto3.client("cloudwatch")
-
-    # Get invocation metrics for the endpoint
-    response = cloudwatch_client.get_metric_statistics(
+    metric_response = cw.get_metric_statistics(
         Namespace="AWS/SageMaker",
         MetricName="Invocations",
-        Dimensions=[{"Name": "EndpointName", "Value": endpoint_name}],
-        StartTime=(datetime.now() - timedelta(hours=1)),
-        EndTime=datetime.now(),
-        Period=300,
+        Dimensions=[
+            {"Name": "EndpointName", "Value": endpoint_name},
+            {
+                "Name": "VariantName",
+                "Value": ep_describe["ProductionVariants"][0]["VariantName"],
+            },
+            {"Name": "EndpointConfigName", "Value": endpoint_name},
+        ],
+        StartTime=(datetime.utcnow() - timedelta(seconds=idle_threshold)),
+        EndTime=(datetime.utcnow()),
+        Period=60,
         Statistics=["Sum"],
     )
 
-    print(response["Datapoints"])
-    # Calculate total invocations in the last hour
-    total_invocations = sum([datapoint["Sum"] for datapoint in response["Datapoints"]])
-    print(f"Total invocations: {total_invocations}")
-
-    # Check if total invocations are below threshold
-    if int(total_invocations) == 0:
-        # Check if the idle time exceeds the threshold
-        last_invocation_time = max(
-            [datapoint["Timestamp"] for datapoint in response["Datapoints"]]
-        )
-        print(f"Last invocation time: {last_invocation_time}")
-        time_since_last_invocation = (
-            datetime.now() - last_invocation_time
-        ).total_seconds()
-        print(f"Time since last invocation: {time_since_last_invocation}")
-        if time_since_last_invocation >= idle_threshold:
-            print("Endpoint is idle")
-            return True  # Model is idle
-
-    print("Endpoint is not idle")
-    return False
+    if len(metric_response["Datapoints"]) == 0:
+        return True
+    else:
+        return False
 
 
 def get_notebook_name():
