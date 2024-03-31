@@ -89,6 +89,9 @@ def is_endpoint_idle():
 
     ep_describe = sm.describe_endpoint(EndpointName=endpoint_name)
 
+    start_time = (datetime.utcnow() - timedelta(seconds=idle_threshold)) + 300
+    print(f"Start Time: {start_time}")
+
     metric_response = cw.get_metric_statistics(
         Namespace="AWS/SageMaker",
         MetricName="Invocations",
@@ -100,13 +103,17 @@ def is_endpoint_idle():
             },
             {"Name": "EndpointConfigName", "Value": endpoint_name},
         ],
-        StartTime=(datetime.utcnow() - timedelta(seconds=idle_threshold)),
+        StartTime=start_time,
         EndTime=(datetime.utcnow()),
         Period=60,
         Statistics=["Sum"],
     )
 
-    if len(metric_response["Datapoints"]) == 0:
+    datapoints = metric_response["Datapoints"]
+
+    print(f"Datapoints: {datapoints}")
+
+    if len(datapoints) == 0:
         return True
     else:
         return False
