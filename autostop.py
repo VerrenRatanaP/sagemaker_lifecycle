@@ -82,44 +82,56 @@ def is_idle(last_activity):
 
 
 def is_endpoint_idle():
+    endpoint_name = get_endpoint_name()
     idle_threshold = time
+    # Initialize SageMaker client
+    sagemaker_client = boto3.client("sagemaker")
 
-    cw = boto3.client("cloudwatch")
-    sm = boto3.client("sagemaker")
+    # Get endpoint status
+    response = sagemaker_client.describe_endpoint(EndpointName=endpoint_name)
+    endpoint_status = response["EndpointStatus"]
 
-    inservice_endpoints = sm.list_endpoints(
-        SortBy="CreationTime",
-        SortOrder="Ascending",
-        MaxResults=100,
-        # NameContains='string',     # for example 'dev-'
-        StatusEquals="InService",
+    print(f"Endpoint status: {endpoint_status}")
+
+    # Check if the endpoint is in service
+    if endpoint_status != "InService":
+        return False  # Endpoint not in service, not idle
+
+    # Get CloudWatch client
+    cloudwatch_client = boto3.client("cloudwatch")
+
+    # Get invocation metrics for the endpoint
+    response = cloudwatch_client.get_metric_statistics(
+        Namespace="AWS/SageMaker",
+        MetricName="Invocations",
+        Dimensions=[{"Name": "EndpointName", "Value": endpoint_name}],
+        StartTime=(datetime.now() - timedelta(hours=1)),
+        EndTime=datetime.now(),
+        Period=300,
+        Statistics=["Sum"],
     )
 
-    for ep in inservice_endpoints["Endpoints"]:
+    # Calculate total invocations in the last hour
+    total_invocations = sum([datapoint["Sum"] for datapoint in response["Datapoints"]])
+    print(f"Total invocations: {total_invocations}")
 
-        ep_describe = sm.describe_endpoint(EndpointName=ep["EndpointName"])
-
-        metric_response = cw.get_metric_statistics(
-            Namespace="AWS/SageMaker",
-            MetricName="Invocations",
-            Dimensions=[
-                {"Name": "EndpointName", "Value": ep["EndpointName"]},
-                {
-                    "Name": "VariantName",
-                    "Value": ep_describe["ProductionVariants"][0]["VariantName"],
-                },
-            ],
-            StartTime=datetime.utcnow() - timedelta(seconds=idle_threshold),
-            EndTime=datetime.utcnow(),
-            Period=int(idle_threshold),
-            Statistics=["Sum"],
-            Unit="None",
+    # Check if total invocations are below threshold
+    if total_invocations == 0:
+        # Check if the idle time exceeds the threshold
+        last_invocation_time = max(
+            [datapoint["Timestamp"] for datapoint in response["Datapoints"]]
         )
+        print(f"Last invocation time: {last_invocation_time}")
+        time_since_last_invocation = (
+            datetime.now() - last_invocation_time
+        ).total_seconds()
+        print(f"Time since last invocation: {time_since_last_invocation}")
+        if time_since_last_invocation >= idle_threshold:
+            print("Endpoint is idle")
+            return True  # Model is idle
 
-        if len(metric_response["Datapoints"]) == 0:
-            return True
-        else:
-            return False
+    print("Endpoint is not idle")
+    return False
 
 
 def get_notebook_name():
@@ -160,7 +172,7 @@ if len(data) > 0:
     for notebook in data:
         # Idleness is defined by Jupyter
         # https://github.com/jupyter/notebook/issues/4634
-        if notebook["kernel"]["execution_state"] == "idle" and is_endpoint_idle():
+        if notebook["kernel"]["execution_state"] == "idle":
             if not ignore_connections:
                 if notebook["kernel"]["connections"] == 0:
                     if not is_idle(notebook["kernel"]["last_activity"]):
@@ -190,7 +202,7 @@ else:
         idle = False
         print("Notebook idle state set as %s since no sessions detected." % idle)
 
-if idle:
+if idle and is_endpoint_idle():
     print("Closing idle notebook")
     client = boto3.client("sagemaker")
     notebook_name = get_notebook_name()
