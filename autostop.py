@@ -89,7 +89,7 @@ def is_endpoint_idle():
 
     ep_describe = sm.describe_endpoint(EndpointName=endpoint_name)
 
-    start_time = (datetime.utcnow() - timedelta(seconds=idle_threshold)) + 300
+    start_time = datetime.utcnow() - timedelta(seconds=idle_threshold)
     print(f"Start Time: {start_time}")
 
     metric_response = cw.get_metric_statistics(
@@ -114,8 +114,10 @@ def is_endpoint_idle():
     print(f"Datapoints: {datapoints}")
 
     if len(datapoints) == 0:
+        print("Endpoint is idle")
         return True
     else:
+        print("Endpoint is not idle")
         return False
 
 
@@ -187,7 +189,9 @@ else:
         idle = False
         print("Notebook idle state set as %s since no sessions detected." % idle)
 
-if idle and is_endpoint_idle():
+endpoint_idle = is_endpoint_idle()
+
+if idle and endpoint_idle:
     print("Closing idle notebook")
     client = boto3.client("sagemaker")
     notebook_name = get_notebook_name()
