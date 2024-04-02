@@ -144,6 +144,12 @@ def stop_endpoint(endpoint_name):
             "SystemUpdating",
         ]:
             print("Stopping endpoint:", endpoint_name)
+            # Store DescribeEndpointConfig response into a variable that we can index in the next step.
+            response = client.describe_endpoint_config(EndpointConfigName=endpoint_name)
+
+            # Delete endpoint
+            model_name = response["ProductionVariants"][0]["ModelName"]
+            client.delete_model(ModelName=model_name)
             client.delete_endpoint(EndpointName=endpoint_name)
             client.delete_endpoint_config(EndpointConfigName=endpoint_name)
         else:
